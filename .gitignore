@@ -1,0 +1,25 @@
+# Local secrets and runtime data
+server/.env
+server/.env.*
+!server/.env.example
+server/starspace.db*
+server/.pytest_cache/
+**/__pycache__/
+.venv/
+venv/
+
+# Android build output and local config
+android/.gradle/
+android/local.properties
+android/**/build/
+android/.idea/
+android/.kotlin/
+*.jks
+*.keystore
+
+# System files
+.DS_Store
+*.log
+
+# Backup files exported from the app
+starspace-*.json
