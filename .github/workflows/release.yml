@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "版本标签，如 v1.1.0；留空则按 versionName 自动生成"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 准备 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 准备 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts)
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v$VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "版本 $VERSION，标签 $TAG"
+
+      - name: 构建 Release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: 整理产物
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/StarSpace-$VERSION.apk"
+          cd dist
+          sha256sum "StarSpace-$VERSION.apk" > "StarSpace-$VERSION.apk.sha256"
+          ls -lh
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: 星屿 ${{ steps.version.outputs.version }}
+          body: |
+            星屿 ${{ steps.version.outputs.version }} 安装包。
+
+            **安装**
+            1. 下载 `StarSpace-${{ steps.version.outputs.version }}.apk`
+            2. 允许「安装未知来源应用」后直接安装
+            3. 需要 Android 8.0（API 26）及以上，覆盖安装会保留数据
+
+            **校验**
+            ```bash
+            sha256sum -c StarSpace-${{ steps.version.outputs.version }}.apk.sha256
+            ```
+
+            > 此包使用仓库内公开的调试密钥签名，仅供自托管使用，请勿上架应用商店。
+          files: |
+            dist/StarSpace-${{ steps.version.outputs.version }}.apk
+            dist/StarSpace-${{ steps.version.outputs.version }}.apk.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false

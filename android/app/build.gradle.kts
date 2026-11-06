@@ -16,6 +16,28 @@ android {
         versionName = "1.1.0"
     }
 
+    signingConfigs {
+        // 开源项目用仓库内固定的密钥签名，保证本地与 CI 构建的安装包可以互相覆盖安装。
+        // 这是公开的调试密钥，不具备保密性，请勿用于应用商店发布。
+        create("shared") {
+            storeFile = rootProject.file("keystore/starspace.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("shared")
+        }
+    }
+
     buildFeatures {
         compose = true
     }

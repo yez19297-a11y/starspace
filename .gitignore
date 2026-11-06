@@ -16,6 +16,8 @@ android/.idea/
 android/.kotlin/
 *.jks
 *.keystore
+# 开源发布用的固定签名，需要提交
+!android/keystore/starspace.keystore
 
 # System files
 .DS_Store
