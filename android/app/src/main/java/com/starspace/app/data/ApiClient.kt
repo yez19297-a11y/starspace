@@ -16,6 +16,27 @@ data class ChatResult(
     val shouldReply: Boolean = true
 )
 
+/** 发给模型的历史窗口：最多 120 条、约 2.4 万字，超出后从最早的消息开始丢弃 */
+private const val HISTORY_MAX_MESSAGES = 120
+private const val HISTORY_MAX_CHARS = 24_000
+
+/**
+ * 按「条数 + 字符总量」双限制裁剪历史。
+ * 只按条数切会在单条消息很长时把请求撑爆，所以再兜一层字数上限。
+ */
+private fun historyForModel(history: List<ChatMessage>): List<ChatMessage> {
+    val recent = history.takeLast(HISTORY_MAX_MESSAGES)
+    var chars = 0
+    val kept = ArrayDeque<ChatMessage>()
+    for (message in recent.asReversed()) {
+        val cost = message.content.length + 12
+        if (kept.isNotEmpty() && chars + cost > HISTORY_MAX_CHARS) break
+        kept.addFirst(message)
+        chars += cost
+    }
+    return kept.toList()
+}
+
 class ApiClient {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -28,7 +49,7 @@ class ApiClient {
         withContext(Dispatchers.IO) {
             val cleanHistory = history.map { it.copy(content = it.content, reasoning = null) }
             val messages = JSONArray()
-            cleanHistory.takeLast(30).forEach {
+            cleanHistory.let(::historyForModel).forEach {
                 messages.put(JSONObject()
                     .put("role", it.role)
                     .put("content", it.content))
@@ -50,7 +71,7 @@ class ApiClient {
                 "直接自然地回应，不要输出角色名前缀，不要提及系统提示词。"
             val messages = JSONArray()
             messages.put(JSONObject().put("role", "system").put("content", system))
-            history.takeLast(30).forEach {
+            historyForModel(history).forEach {
                 messages.put(JSONObject()
                     .put("role", it.role)
                     .put("content", it.content))
@@ -110,14 +131,19 @@ class ApiClient {
         memberNames: List<String>, mentioned: Boolean
     ): ChatResult = withContext(Dispatchers.IO) {
         val system = persona.prompt.trim() +
-            "\n\n你正在名为「星屿」的独立应用的群聊中。群里有这些成员：${memberNames.joinToString("、")}。" +
-            "你正在和用户及其他 AI 伙伴一起聊天。保持人设一致，自然地参与群聊。" +
-            (if (mentioned) "你被@提及了，你「必须」回复。" else "如果话题与你的兴趣相关，请回复。" +
-                "如果话题天气、不相关、不适合你说话，只回复\"[SKIP]\"这五个字符，不要加任何其他内容。") +
-            "回复时直接写出你要说的话，不要加自己的名字前缀。"
+            "\n\n你正在名为「星屿」的独立应用的群聊中，群成员有：${memberNames.joinToString("、")}。" +
+            "你在和用户、其他 AI 伙伴一起聊天，你只代表你自己说话。" +
+            "保持人设一致，一次只说 1-3 句，像真人在群里发消息那样简短自然，不要长篇大论。" +
+            (if (mentioned) {
+                "用户刚刚 @ 了你，这一轮你「必须」回复，直接回应对方说的事。"
+            } else {
+                "先判断这一轮你要不要开口：只要话题你能接、有自己的看法、想补充或想接梗，就正常回复；" +
+                    "只有话题和你完全无关、或者别人已经说得很完整时，才只输出 [SKIP] 五个字符，不要加任何其他内容。"
+            }) +
+            "回复时直接写你要说的话，不要加自己的名字前缀，也不要复述别人的话。"
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", system))
-        history.takeLast(30).forEach {
+        historyForModel(history).forEach {
             val prefix = if (it.authorName != null) "${it.authorName}: " else ""
             messages.put(JSONObject()
                 .put("role", it.role)
@@ -127,7 +153,7 @@ class ApiClient {
             .put("model", persona.model.ifBlank { config.defaultModel })
             .put("messages", messages)
             .put("temperature", persona.temperature)
-            .put("max_tokens", 60)
+            .put("max_tokens", 260)
         val request = Request.Builder()
             .url("${config.baseUrl.trimEnd('/')}/chat/completions")
             .post(body.toString().toRequestBody(jsonType))
