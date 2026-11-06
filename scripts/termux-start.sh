@@ -10,6 +10,18 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# uvicorn 没装上时给出可执行的下一步，而不是只报 "not found"
+if ! command -v uvicorn >/dev/null 2>&1; then
+  echo "找不到 uvicorn，依赖还没装完。"
+  echo
+  echo "先执行："
+  echo "  python -m pip install --no-cache-dir -r $ROOT/server/requirements-termux.txt"
+  echo
+  echo "如果编译 pydantic-core 失败，再补工具链后重试："
+  echo "  pkg install -y rust binutils clang make"
+  exit 1
+fi
+
 # 持有唤醒锁，避免锁屏后进程被挂起（需要 Termux 在前台通知里有常驻通知）
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
 
