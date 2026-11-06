@@ -98,6 +98,26 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 
 产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。也可以直接从 [Releases](../../releases) 下载。
 
+### 4. 发布新版本
+
+打一个 `v` 开头的标签推上去，GitHub Actions 会自动构建并创建 Release：
+
+```bash
+# 先把 build.gradle.kts 里的 versionCode / versionName 改好
+git add -A && git commit -m "chore: 发布 v1.1.0"
+git tag v1.1.0
+git push origin main --tags
+```
+
+流程写在 `.github/workflows/release.yml`：
+
+1. 读取 `android/app/build.gradle.kts` 里的 `versionName` 作为版本号
+2. `./gradlew assembleRelease` 构建已签名 APK
+3. 计算 SHA-256，连同 APK 一起上传到同名 Release
+4. 需要补发时，也可以在 Actions 页面手动运行「Release」并填写标签
+
+签名使用仓库内 `android/keystore/starspace.keystore`（公开的调试密钥），因此本地和 CI 构建的安装包可以互相覆盖安装。**这不是保密密钥，不要用于应用商店发布。**
+
 ## 配置说明
 
 | 配置 | 位置 | 说明 |
