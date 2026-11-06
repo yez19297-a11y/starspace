@@ -900,8 +900,9 @@ private fun GroupChatPane(
                 try {
                     val history = store.data.messages
                         .filter { it.personaId == group.id }
+                        .toMutableList()
+                    val nameList = members.map { it.name }
 
-                    val responders = mutableListOf<Pair<Persona, ChatResult>>()
                     val llm = store.data.settings.activeConfig
                     val direct = llm.directMode && llm.apiKey.isNotBlank()
 
@@ -911,54 +912,58 @@ private fun GroupChatPane(
                         return@launch
                     }
 
-                    for (member in mentionedMembers) {
+                    val replied = mutableListOf<Pair<Persona, ChatResult>>()
+                    // 一轮最多 3 个人开口，避免群里刷屏
+                    val maxSpeakers = 3
+
+                    // 关键：每说完一句就写回 history，后面的人能看到前面刚说的话，才接得下去
+                    suspend fun speak(member: Persona, must: Boolean): Boolean {
                         val result = if (direct) {
-                            api.groupDecideDirect(
-                                llm, member, history,
-                                members.map { it.name }, mentioned = true
-                            )
+                            api.groupDecideDirect(llm, member, history, nameList, mentioned = must)
                         } else {
                             api.chat(store.data.settings.serverUrl, member, history)
                         }
-                        if (result.shouldReply && result.content.isNotBlank()) {
-                            responders.add(member to result)
-                        }
-                    }
-
-                    for (member in otherMembers) {
-                        val result = if (direct) {
-                            api.groupDecideDirect(
-                                llm, member, history,
-                                members.map { it.name }, mentioned = false
-                            )
-                        } else {
-                            api.chat(store.data.settings.serverUrl, member, history)
-                        }
-                        if (result.shouldReply && result.content.isNotBlank()) {
-                            responders.add(member to result)
-                        }
-                    }
-
-                    for ((member, result) in responders) {
-                        store.addMessage(
-                            ChatMessage(
-                                personaId = group.id,
-                                role = "assistant",
-                                content = result.content,
-                                reasoning = result.reasoning,
-                                authorId = member.id,
-                                authorName = member.name,
-                                authorAvatar = member.avatar,
-                                authorColor = member.color,
-                                authorImage = member.avatarImage
-                            )
+                        if (!result.shouldReply || result.content.isBlank()) return false
+                        val reply = ChatMessage(
+                            personaId = group.id,
+                            role = "assistant",
+                            content = result.content,
+                            reasoning = result.reasoning,
+                            authorId = member.id,
+                            authorName = member.name,
+                            authorAvatar = member.avatar,
+                            authorColor = member.color,
+                            authorImage = member.avatarImage
                         )
+                        store.addMessage(reply)
+                        history.add(reply)
+                        replied.add(member to result)
+                        return true
                     }
 
-                    if (responders.isEmpty()) {
+                    // 被 @ 的人必回
+                    for ((index, member) in mentionedMembers.withIndex()) {
+                        if (index > 0) delay(450L)
+                        speak(member, must = true)
+                    }
+
+                    // 其余成员依次判断，看到的是已经更新过的群聊记录
+                    for (member in otherMembers) {
+                        if (replied.size >= maxSpeakers) break
+                        delay(350L + Random.nextLong(600L))
+                        speak(member, must = false)
+                    }
+
+                    // 全员沉默时随机挑一位兜底，避免发出去没人理
+                    if (replied.isEmpty() && otherMembers.isNotEmpty()) {
+                        delay(300L)
+                        speak(otherMembers.random(), must = true)
+                    }
+
+                    if (replied.isEmpty()) {
                         onNotify("大家这次都选择了沉默")
                     } else if (store.data.settings.notificationsEnabled && !AppLifecycle.foreground) {
-                        val (member, result) = responders.last()
+                        val (member, result) = replied.last()
                         Notify.showMessage(
                             context,
                             group.id,

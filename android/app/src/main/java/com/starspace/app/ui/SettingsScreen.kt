@@ -672,7 +672,7 @@ fun AboutScreen(onBack: () -> Unit) {
         SettingCard {
             AboutFeature("独立提示词", "每个 AI 对话都可以拥有单独的人格、模型和随机度。")
             SettingDivider()
-            AboutFeature("群聊", "可以把多个 AI 伙伴拉进同一个群，围绕话题一起交流。")
+            AboutFeature("群聊", "可以把多个 AI 伙伴拉进同一个群；每人独立判断要不要开口，也能看到别人刚说的话接着聊，@ 谁谁必回。")
             SettingDivider()
             AboutFeature("独立空间", "动态、评论、点赞都保存在自己的应用与后端中；评论里 @ 角色会得到回复，AI 也会主动来你的动态下聊天。")
             SettingDivider()
@@ -692,7 +692,7 @@ fun AboutScreen(onBack: () -> Unit) {
         }
 
         Text(
-            "版本 1.0.0 · Android 8.0 及以上",
+            "版本 1.1.0 · Android 8.0 及以上",
             color = theme.muted,
             fontSize = 11.sp,
             modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp)
