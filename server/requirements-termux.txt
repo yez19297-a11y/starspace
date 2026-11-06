@@ -1,0 +1,6 @@
+# Termux 专用依赖：不装 uvicorn[standard]，避免 uvloop / httptools 在 Android 上编译失败
+fastapi>=0.115,<1
+uvicorn>=0.32,<1
+httpx>=0.27,<1
+pydantic>=2.9,<3
+python-dotenv>=1.0,<2
