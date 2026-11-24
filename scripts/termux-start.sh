@@ -14,11 +14,13 @@ fi
 if ! command -v uvicorn >/dev/null 2>&1; then
   echo "找不到 uvicorn，依赖还没装完。"
   echo
-  echo "先执行："
-  echo "  python -m pip install --no-cache-dir -r $ROOT/server/requirements-termux.txt"
+  echo "Termux 原生环境编译 pydantic-core 很容易失败，建议直接改用 Debian 容器："
+  echo "  bash $ROOT/scripts/termux-proot-setup.sh"
+  echo "  bash $ROOT/scripts/termux-proot-start.sh"
   echo
-  echo "如果编译 pydantic-core 失败，再补工具链后重试："
-  echo "  pkg install -y rust binutils clang make"
+  echo "如果坚持用原生环境，先补工具链再重试："
+  echo "  pkg install -y rust maturin binutils clang make"
+  echo "  python -m pip install --no-cache-dir --no-build-isolation -r $ROOT/server/requirements-termux.txt"
   exit 1
 fi
 

@@ -21,14 +21,30 @@ echo "==> 当前环境"
 python -V
 python -m pip --version
 
+if python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 13) else 1)'; then
+  echo
+  echo "提示：Termux 的 Python 是 $(python -V 2>&1 | cut -d' ' -f2)，pydantic-core 没有预编译包，"
+  echo "      本脚本会现场编译（10-20 分钟，手机可能内存不足）。"
+  echo "      更稳妥的是 proot 方案：bash $ROOT/scripts/termux-proot-setup.sh"
+fi
+
 echo "==> 安装依赖"
-# pydantic v2 的核心由 Rust 编写，Termux 拿不到预编译 wheel。
-# 先直接装，失败再补 Rust 工具链从源码编译（大约 10-20 分钟）。
+# pydantic v2 的核心由 Rust 编写，Termux 拿不到预编译 wheel，只能从源码编译。
+# 关键点：先装好系统级 rust 和 maturin，再用 --no-build-isolation 安装。
+# 否则 pip 会在隔离环境里自己下一个 maturin，那个 maturin 找不到 rust 就去装 rustup，
+# 而 rustup 不支持 aarch64-linux-android，于是报
+# "Target triple not supported by rustup: aarch64-unknown-linux-android"。
 if ! python -m pip install --no-cache-dir -r requirements-termux.txt; then
   echo
-  echo "==> 需要从源码编译 pydantic-core，正在安装 Rust 工具链"
-  pkg install -y rust binutils clang make
-  python -m pip install --no-cache-dir -r requirements-termux.txt
+  echo "==> 需要从源码编译 pydantic-core，正在安装 Rust 工具链（约 300MB）"
+  pkg install -y rust maturin binutils clang make
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo
+    echo "Rust 没装上（多半是存储空间或网络问题）。建议改用 proot 方案，不需要编译："
+    echo "  bash $ROOT/scripts/termux-proot-setup.sh"
+    exit 1
+  fi
+  python -m pip install --no-cache-dir --no-build-isolation -r requirements-termux.txt
 fi
 
 if ! command -v uvicorn >/dev/null 2>&1; then
