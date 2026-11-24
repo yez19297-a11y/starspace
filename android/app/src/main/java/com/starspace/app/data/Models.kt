@@ -14,7 +14,9 @@ data class UserAccount(
     val avatar: String = "我",
     val color: Long = 0xFF4AAE9B,
     val avatarImage: String? = null,
-    val bio: String = "把日常和灵感，安放在自己的小宇宙"
+    val bio: String = "把日常和灵感，安放在自己的小宇宙",
+    /** 我自己的设定：AI 在对话里会一直记得（名字、身份、经历等） */
+    val setting: String = ""
 )
 
 data class Persona(
@@ -243,4 +245,25 @@ fun sampleData(): AppData {
         messages = messages,
         posts = posts
     )
+}
+
+/** 群聊输入框上方 @ 列表里的一项 */
+data class MentionTarget(
+    val id: String,
+    val name: String,
+    val avatar: String,
+    val color: Long,
+    val avatarImage: String?
+)
+
+/**
+ * 把「我的设定」包装成可拼进 system prompt 的段落。
+ * 没写设定时返回空串，调用方直接拼接即可。
+ */
+fun userSettingBlock(user: UserAccount): String {
+    val setting = user.setting.trim()
+    if (setting.isBlank()) return ""
+    return "\n\n【用户设定】正在和你聊天的人叫「${user.username}」，以下是 TA 自己的设定，" +
+        "请始终记住并保持一致；不要复述这段设定，也不要提到「设定」这个词：\n" +
+        setting.take(2000)
 }

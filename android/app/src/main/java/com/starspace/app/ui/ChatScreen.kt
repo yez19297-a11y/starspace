@@ -5,6 +5,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +51,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -56,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.starspace.app.data.ChatMessage
+import com.starspace.app.data.MentionTarget
 import com.starspace.app.data.UserAccount
 
 @Composable
@@ -69,6 +75,7 @@ fun ChatScreen(
     isGroup: Boolean,
     currentUser: UserAccount,
     messages: List<ChatMessage>,
+    mentions: List<MentionTarget> = emptyList(),
     sending: Boolean,
     onBack: () -> Unit,
     onEdit: () -> Unit,
@@ -77,7 +84,20 @@ fun ChatScreen(
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val inputFocus = remember { FocusRequester() }
     val theme = AppTheme.colors
+
+    // 点 @ 列表：把「@名字 」插到输入框末尾，并弹出键盘，直接接着说话
+    fun mention(member: MentionTarget) {
+        if (sending) return
+        val prefix = when {
+            input.isBlank() -> ""
+            input.endsWith(" ") || input.endsWith("\n") -> input
+            else -> "$input "
+        }
+        input = "$prefix@${member.name} "
+        runCatching { inputFocus.requestFocus() }
+    }
 
     LaunchedEffect(messages.size, sending) {
         val itemCount = 1 + messages.size + if (sending) 1 else 0
@@ -149,50 +169,85 @@ fun ChatScreen(
             }
         }
 
-        Row(
+        Column(
             Modifier.fillMaxWidth().background(theme.navBarBg)
                 .imePadding().navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = {
+            if (isGroup && mentions.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
-                        if (isGroup) "在群里说点什么…" else "和 $title 说点什么…",
-                        fontSize = 14.sp,
-                        color = theme.muted
+                        "@", color = theme.muted, fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                },
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 4,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                    focusedContainerColor = theme.inputFieldBg,
-                    unfocusedContainerColor = theme.inputFieldBg,
-                    focusedTextColor = theme.ink,
-                    unfocusedTextColor = theme.ink
-                )
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    if (input.isNotBlank() && !sending) {
-                        onSend(input.trim())
-                        input = ""
+                    mentions.forEach { member ->
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(theme.inputFieldBg)
+                                .clickable { mention(member) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Avatar(
+                                text = member.avatar,
+                                color = Color(member.color),
+                                size = 20,
+                                imagePath = member.avatarImage
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(member.name, fontSize = 12.sp, color = theme.ink, maxLines = 1)
+                        }
                     }
-                },
-                enabled = input.isNotBlank() && !sending,
-                modifier = Modifier.background(
-                    if (input.isNotBlank()) theme.starBlue else theme.sendDisabledBg, CircleShape
-                )
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.AutoMirrored.Outlined.Send, "发送",
-                    tint = Color.White, modifier = Modifier.size(20.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f).focusRequester(inputFocus),
+                    placeholder = {
+                        Text(
+                            if (isGroup) "在群里说点什么…" else "和 $title 说点什么…",
+                            fontSize = 14.sp,
+                            color = theme.muted
+                        )
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 4,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedContainerColor = theme.inputFieldBg,
+                        unfocusedContainerColor = theme.inputFieldBg,
+                        focusedTextColor = theme.ink,
+                        unfocusedTextColor = theme.ink
+                    )
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        if (input.isNotBlank() && !sending) {
+                            onSend(input.trim())
+                            input = ""
+                        }
+                    },
+                    enabled = input.isNotBlank() && !sending,
+                    modifier = Modifier.background(
+                        if (input.isNotBlank()) theme.starBlue else theme.sendDisabledBg, CircleShape
+                    )
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, "发送",
+                        tint = Color.White, modifier = Modifier.size(20.dp))
+                }
             }
         }
     }

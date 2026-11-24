@@ -98,6 +98,12 @@ class AppStore(context: Context) {
         update(data.copy(worldBook = list))
     }
 
+    /** 批量导入世界书条目（酒馆世界书 / 角色卡自带设定），一次写盘 */
+    fun addWorldBookEntries(entries: List<WorldBookEntry>) {
+        if (entries.isEmpty()) return
+        update(data.copy(worldBook = data.worldBook + entries))
+    }
+
     fun deleteWorldBookEntry(id: String) {
         update(data.copy(worldBook = data.worldBook.filterNot { it.id == id }))
     }
@@ -336,6 +342,7 @@ private fun UserAccount.toJson() = JSONObject().apply {
     put("color", color)
     put("avatarImage", avatarImage ?: JSONObject.NULL)
     put("bio", bio)
+    put("setting", setting)
 }
 
 private fun Persona.toJson() = JSONObject().apply {
@@ -463,7 +470,8 @@ private fun JSONObject.toUser() = UserAccount(
     avatar = optString("avatar", "我"),
     color = optLong("color", 0xFF4AAE9B),
     avatarImage = optionalString("avatarImage"),
-    bio = optString("bio", "把日常和灵感，安放在自己的小宇宙")
+    bio = optString("bio", "把日常和灵感，安放在自己的小宇宙"),
+    setting = optString("setting", "")
 )
 
 private fun JSONObject.toPersona() = Persona(

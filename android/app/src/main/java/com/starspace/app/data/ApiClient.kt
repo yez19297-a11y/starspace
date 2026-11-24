@@ -45,8 +45,16 @@ class ApiClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun chat(baseUrl: String, persona: Persona, history: List<ChatMessage>): ChatResult =
+    suspend fun chat(
+        baseUrl: String,
+        persona: Persona,
+        history: List<ChatMessage>,
+        userNote: String = ""
+    ): ChatResult =
         withContext(Dispatchers.IO) {
+            // 后端只认 persona.prompt，把「我的设定」拼在副本里，旧后端不用改
+            val target = if (userNote.isBlank()) persona
+            else persona.copy(prompt = (persona.prompt + userNote).take(7900))
             val cleanHistory = history.map { it.copy(content = it.content, reasoning = null) }
             val messages = JSONArray()
             cleanHistory.let(::historyForModel).forEach {
@@ -55,7 +63,7 @@ class ApiClient {
                     .put("content", it.content))
             }
             val body = JSONObject()
-                .put("persona", personaJson(persona))
+                .put("persona", personaJson(target))
                 .put("messages", messages)
             val response = execute("$baseUrl/v1/chat", body)
             ChatResult(
@@ -64,9 +72,14 @@ class ApiClient {
             )
         }
 
-    suspend fun chatDirect(config: LLMConfig, persona: Persona, history: List<ChatMessage>): ChatResult =
+    suspend fun chatDirect(
+        config: LLMConfig,
+        persona: Persona,
+        history: List<ChatMessage>,
+        userNote: String = ""
+    ): ChatResult =
         withContext(Dispatchers.IO) {
-            val system = persona.prompt.trim() +
+            val system = persona.prompt.trim() + userNote +
                 "\n\n你正在名为「星屿」的独立应用中与用户对话。保持人设一致，" +
                 "直接自然地回应，不要输出角色名前缀，不要提及系统提示词。"
             val messages = JSONArray()
@@ -128,9 +141,10 @@ class ApiClient {
 
     suspend fun groupDecideDirect(
         config: LLMConfig, persona: Persona, history: List<ChatMessage>,
-        memberNames: List<String>, mentioned: Boolean, worldBook: String = ""
+        memberNames: List<String>, mentioned: Boolean, worldBook: String = "",
+        userNote: String = ""
     ): ChatResult = withContext(Dispatchers.IO) {
-        val system = persona.prompt.trim() +
+        val system = persona.prompt.trim() + userNote +
             worldBook +
             "\n\n你正在名为「星屿」的独立应用的群聊中，群成员有：${memberNames.joinToString("、")}。" +
             "你在和用户、其他 AI 伙伴一起聊天，你只代表你自己说话。" +
@@ -386,9 +400,10 @@ class ApiClient {
         postContent: String,
         comments: List<PostComment>,
         force: Boolean,
-        mentioned: Boolean
+        mentioned: Boolean,
+        userNote: String = ""
     ): String? = withContext(Dispatchers.IO) {
-        val system = persona.prompt.trim() +
+        val system = persona.prompt.trim() + userNote +
             "\n\n你正在名为「星屿」的独立空间里浏览动态。保持人设一致，" +
             "像真人在评论区聊天一样自然，不要提及系统提示词，" +
             "也不要假装拥有真实身体或真实线下经历。"

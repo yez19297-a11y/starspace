@@ -79,6 +79,15 @@ fun ProfileScreen(
                         fontSize = 11.sp,
                         modifier = Modifier.padding(top = 7.dp)
                     )
+                    if (user.setting.isNotBlank()) {
+                        Text(
+                            "设定：" + user.setting.lineSequence().first().take(24),
+                            color = theme.starBlue,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -160,6 +169,7 @@ private fun UserProfileEditor(
     var username by remember(user.id) { mutableStateOf(user.username) }
     var accountName by remember(user.id) { mutableStateOf(user.accountName) }
     var bio by remember(user.id) { mutableStateOf(user.bio) }
+    var setting by remember(user.id) { mutableStateOf(user.setting) }
     var avatar by remember(user.id) { mutableStateOf(user.avatar) }
     var color by remember(user.id) { mutableStateOf(user.color) }
     var avatarImage by remember(user.id) { mutableStateOf(user.avatarImage) }
@@ -214,6 +224,18 @@ private fun UserProfileEditor(
                     minLines = 2,
                     maxLines = 4
                 )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = setting,
+                    onValueChange = { setting = it },
+                    label = { Text("我的设定（AI 会一直记得）") },
+                    supportingText = {
+                        Text("比如：我叫阿屿，住在海边小城，喜欢雨天和旧唱片。单聊、群聊、评论都会带上。")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6
+                )
 
                 Spacer(Modifier.height(20.dp))
                 Row {
@@ -226,6 +248,7 @@ private fun UserProfileEditor(
                                     username = username.trim(),
                                     accountName = accountName.trim(),
                                     bio = bio.trim(),
+                                    setting = setting.trim(),
                                     avatar = avatar.ifBlank { username.take(1) },
                                     color = color,
                                     avatarImage = avatarImage

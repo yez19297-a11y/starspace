@@ -1,5 +1,7 @@
 package com.starspace.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -27,11 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.starspace.app.data.TavernImport
 import com.starspace.app.data.WorldBook
 import com.starspace.app.data.WorldBookEntry
 
@@ -46,9 +51,29 @@ fun WorldBookScreen(
     onBack: () -> Unit,
     onSave: (WorldBookEntry) -> Unit,
     onDelete: (String) -> Unit,
-    onToggle: (String, Boolean) -> Unit
+    onToggle: (String, Boolean) -> Unit,
+    onImport: (List<WorldBookEntry>) -> Unit,
+    onNotify: (String) -> Unit
 ) {
     val theme = AppTheme.colors
+    val context = LocalContext.current
+    var pendingImport by remember { mutableStateOf<List<WorldBookEntry>?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+        }.getOrNull()
+        val imported = if (text.isNullOrBlank()) emptyList() else {
+            runCatching { TavernImport.parseWorldBook(text) }.getOrDefault(emptyList())
+        }
+        if (imported.isEmpty()) {
+            onNotify("没读到条目，请确认是酒馆世界书 JSON")
+        } else {
+            pendingImport = imported
+        }
+    }
     var editorTarget by remember { mutableStateOf<WorldBookEntry?>(null) }
     // 新建时也要有一个稳定的对象，否则每次重组都会生成新 id，输入框会被重置
     var creatingEntry by remember { mutableStateOf<WorldBookEntry?>(null) }
@@ -154,6 +179,15 @@ fun WorldBookScreen(
             Spacer(Modifier.height(8.dp))
         }
 
+        OutlinedButton(
+            onClick = {
+                picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 4.dp)
+        ) { Text("导入酒馆（SillyTavern）世界书") }
+
         Button(
             onClick = { creatingEntry = WorldBookEntry(title = "", content = "") },
             modifier = Modifier
@@ -175,6 +209,28 @@ fun WorldBookScreen(
                 onSave(saved)
                 creatingEntry = null
                 editorTarget = null
+            }
+        )
+    }
+
+    pendingImport?.let { imported ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("导入 ${imported.size} 条世界书？") },
+            text = {
+                Text(
+                    imported.take(5).joinToString("\n") { "· ${it.title}" } +
+                        (if (imported.size > 5) "\n…还有 ${imported.size - 5} 条" else "")
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onImport(imported)
+                    pendingImport = null
+                }) { Text("导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) { Text("取消") }
             }
         )
     }

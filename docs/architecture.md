@@ -26,7 +26,8 @@
 |---|---|
 | `data/AppStore.kt` | 单例状态容器，整份数据序列化成 JSON 存 SharedPreferences |
 | `data/ApiClient.kt` | OkHttp 调用：直连模型、后端接口、连接测试 |
-| `data/Models.kt` | 数据模型、模型目录、演示数据 |
+| `data/Models.kt` | 数据模型、模型目录、演示数据、「我的设定」提示词片段 |
+| `data/TavernImport.kt` | 离线解析酒馆角色卡（PNG tEXt/iTXt、JSON v1/v2）与世界书 |
 | `ui/StarSpaceApp.kt` | 路由、会话状态、AI 回复编排、通知触发 |
 | `ui/Theme.kt` | 浅色 / 深色配色，`AppTheme.colors` |
 | `notify/` | 通知渠道、系统通知、后台动态检查（WorkManager） |

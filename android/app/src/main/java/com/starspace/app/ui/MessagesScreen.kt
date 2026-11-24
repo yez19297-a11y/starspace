@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.PersonAddAlt
 import androidx.compose.material3.Icon
@@ -69,7 +70,8 @@ fun MessagesScreen(
     data: AppData,
     onOpen: (String) -> Unit,
     onCreatePersona: () -> Unit,
-    onCreateGroup: () -> Unit
+    onCreateGroup: () -> Unit,
+    onImportCard: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var anchorBounds by remember { mutableStateOf<Rect?>(null) }
@@ -120,6 +122,10 @@ fun MessagesScreen(
             onNewGroup = {
                 menuExpanded = false
                 onCreateGroup()
+            },
+            onImportCard = {
+                menuExpanded = false
+                onImportCard()
             }
         )
     }
@@ -130,7 +136,8 @@ private fun PlusMenu(
     anchor: Rect?,
     onDismiss: () -> Unit,
     onNewChat: () -> Unit,
-    onNewGroup: () -> Unit
+    onNewGroup: () -> Unit,
+    onImportCard: () -> Unit
 ) {
     val theme = AppTheme.colors
     val density = LocalDensity.current
@@ -157,6 +164,7 @@ private fun PlusMenu(
             Column(Modifier.padding(vertical = 6.dp)) {
                 PlusMenuItem(Icons.Outlined.PersonAddAlt, "新建 AI 对话", onNewChat)
                 PlusMenuItem(Icons.Outlined.Groups, "发起群聊", onNewGroup)
+                PlusMenuItem(Icons.Outlined.FileDownload, "导入酒馆角色卡", onImportCard)
             }
         }
     }

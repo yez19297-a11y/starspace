@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -30,6 +31,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,15 +53,20 @@ import com.starspace.app.data.ChatResult
 import com.starspace.app.data.AppStore
 import com.starspace.app.data.ChatMessage
 import com.starspace.app.data.GroupChat
+import com.starspace.app.data.MentionTarget
 import com.starspace.app.data.ModelCatalog
 import com.starspace.app.data.Persona
 import com.starspace.app.data.PostComment
 import com.starspace.app.data.SpacePost
+import com.starspace.app.data.TavernImport
 import com.starspace.app.data.WorldBook
+import com.starspace.app.data.userSettingBlock
 import com.starspace.app.notify.Notify
 import com.starspace.app.notify.SpaceCheckWorker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.random.Random
 
@@ -115,6 +122,46 @@ fun StarSpaceApp(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) notify("未授予通知权限，AI 回复不会出现在通知栏")
+    }
+
+    var pendingCardImport by remember { mutableStateOf<TavernImport.CardImport?>(null) }
+
+    // 选择酒馆角色卡（PNG 或 JSON），解析后先预览再入库
+    val cardPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val imported: TavernImport.CardImport? = withContext(Dispatchers.IO) {
+                try {
+                    val bytes = context.contentResolver.openInputStream(uri)
+                        ?.use { it.readBytes() }
+                        ?: throw IllegalStateException("读不到文件内容")
+                    if (bytes.size > 12 * 1024 * 1024) {
+                        throw IllegalStateException("文件超过 12 MB")
+                    }
+                    val card = TavernImport.parseCard(bytes, "导入的角色")
+                        ?: throw IllegalStateException("文件里没有角色卡数据")
+                    if (TavernImport.isPng(bytes)) {
+                        card.copy(
+                            persona = card.persona.copy(
+                                avatarImage = TavernImport.saveAvatar(context, bytes)
+                            )
+                        )
+                    } else {
+                        card
+                    }
+                } catch (error: Exception) {
+                    notify("导入失败：${error.message ?: "无法读取文件"}")
+                    null
+                }
+            }
+            if (imported == null) {
+                notify("这个文件不是酒馆角色卡（支持 PNG 角色卡或 JSON）")
+            } else {
+                pendingCardImport = imported
+            }
+        }
     }
 
     // 首次进入请求一次通知权限（Android 13+），之后可在系统设置里改
@@ -190,6 +237,7 @@ fun StarSpaceApp(
 
         val config = store.data.settings.activeConfig
         val backendReady = store.data.settings.backendReady
+        val userNote = store.data.user?.let { userSettingBlock(it) }.orEmpty()
 
         scope.launch {
             val pending = responders.map { it.first.name }.toMutableList()
@@ -215,7 +263,8 @@ fun StarSpaceApp(
                         val generated = runCatching {
                             api.commentReplyDirect(
                                 config, persona, latest.authorName, latest.content,
-                                latest.comments, force = true, mentioned = isMentioned
+                                latest.comments, force = true, mentioned = isMentioned,
+                                userNote = userNote
                             )
                         }.getOrNull()
                         if (generated != null) {
@@ -242,7 +291,8 @@ fun StarSpaceApp(
                             val generated = runCatching {
                                 api.commentReplyDirect(
                                     config, persona, latest.authorName, latest.content,
-                                    latest.comments, force = true, mentioned = isMentioned
+                                    latest.comments, force = true, mentioned = isMentioned,
+                                    userNote = userNote
                                 )
                             }.getOrNull()
                             if (generated != null) produced = local(generated)
@@ -370,7 +420,8 @@ fun StarSpaceApp(
                                             members = emptyList()
                                         )
                                         groupEditorIsNew = true
-                                    }
+                                    },
+                                    onImportCard = { cardPicker.launch(arrayOf("image/png", "application/json", "application/octet-stream")) }
                                 )
                             }
                             Box(Modifier.weight(0.66f)) {
@@ -458,7 +509,8 @@ fun StarSpaceApp(
                                     members = emptyList()
                                 )
                                 groupEditorIsNew = true
-                            }
+                            },
+                            onImportCard = { cardPicker.launch(arrayOf("image/png", "application/json", "application/octet-stream")) }
                         )
                     }
                     selectedTab == 1 -> {
@@ -680,7 +732,12 @@ fun StarSpaceApp(
                                 onToggle = { id, enabled ->
                                     store.setWorldBookEnabled(id, enabled)
                                     notify(if (enabled) "条目已启用" else "条目已停用")
-                                }
+                                },
+                                onImport = { imported ->
+                                    store.addWorldBookEntries(imported)
+                                    notify("已导入 ${imported.size} 条世界书")
+                                },
+                                onNotify = { message -> notify(message) }
                             )
                             "backup" -> BackupScreen(
                                 onBack = { profilePage = "settings" },
@@ -772,6 +829,49 @@ fun StarSpaceApp(
             }
         )
     }
+
+    pendingCardImport?.let { card ->
+        AlertDialog(
+            onDismissRequest = { pendingCardImport = null },
+            title = { Text("导入「${card.persona.name}」？") },
+            text = {
+                Text(
+                    buildString {
+                        append("角色卡里的描述、性格和场景会合成这个角色的提示词。")
+                        if (card.worldBook.isNotEmpty()) {
+                            append("\n另外会导入 ${card.worldBook.size} 条角色自带的世界书设定。")
+                        }
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val imported = card
+                    pendingCardImport = null
+                    store.addPersona(imported.persona)
+                    store.addWorldBookEntries(imported.worldBook)
+                    selectedTab = 0
+                    activeConversationId = imported.persona.id
+                    notify(
+                        if (imported.worldBook.isEmpty()) "已导入「${imported.persona.name}」"
+                        else "已导入「${imported.persona.name}」和 ${imported.worldBook.size} 条世界书"
+                    )
+                    if (store.data.settings.backendReady) {
+                        scope.launch {
+                            runCatching {
+                                api.syncPersona(
+                                    store.data.settings.serverUrl, imported.persona
+                                )
+                            }
+                        }
+                    }
+                }) { Text("导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCardImport = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -789,6 +889,7 @@ private fun SingleChatPane(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val messages = store.data.messages.filter { it.personaId == persona.id }
+    val userNote = userSettingBlock(currentUser)
 
     ChatScreen(
         title = persona.name,
@@ -822,9 +923,9 @@ private fun SingleChatPane(
                     val history = store.data.messages.filter { it.personaId == persona.id }
                     val llm = store.data.settings.activeConfig
                     val result = if (llm.directMode && llm.apiKey.isNotBlank()) {
-                        api.chatDirect(llm, persona, history)
+                        api.chatDirect(llm, persona, history, userNote)
                     } else if (store.data.settings.backendReady) {
-                        api.chat(store.data.settings.serverUrl, persona, history)
+                        api.chat(store.data.settings.serverUrl, persona, history, userNote)
                     } else {
                         onNotify("请先在设置里填写后端地址，或切换到直连配置")
                         onSendingChange(null)
@@ -877,6 +978,16 @@ private fun GroupChatPane(
         store.data.personas.find { it.id == id }
     }
     val memberNames = members.joinToString("、") { it.name }
+    val mentions = members.map {
+        MentionTarget(
+            id = it.id,
+            name = it.name,
+            avatar = it.avatar,
+            color = it.color,
+            avatarImage = it.avatarImage
+        )
+    }
+    val userNote = userSettingBlock(currentUser)
 
     ChatScreen(
         title = group.name,
@@ -894,6 +1005,7 @@ private fun GroupChatPane(
         isGroup = true,
         currentUser = currentUser,
         messages = messages,
+        mentions = mentions,
         sending = sending,
         onBack = { onBack?.invoke() },
         onEdit = onEdit,
@@ -968,15 +1080,17 @@ private fun GroupChatPane(
                         val result = if (direct) {
                             api.groupDecideDirect(
                                 llm, member, history, nameList,
-                                mentioned = must, worldBook = worldBook
+                                mentioned = must, worldBook = worldBook,
+                                userNote = userNote
                             )
                         } else {
                             // 走后端中转时，把设定拼进人设副本，后端不用改；
                             // 旧版后端对 prompt 有 8000 字上限，这里留一点余量
-                            val target = if (worldBook.isBlank()) {
+                            val extra = userNote + worldBook
+                            val target = if (extra.isBlank()) {
                                 member
                             } else {
-                                member.copy(prompt = (member.prompt + worldBook).take(7900))
+                                member.copy(prompt = (member.prompt + extra).take(7900))
                             }
                             api.chat(store.data.settings.serverUrl, target, history)
                         }
