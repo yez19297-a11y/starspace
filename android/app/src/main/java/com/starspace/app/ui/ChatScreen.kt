@@ -52,8 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -76,6 +75,7 @@ fun ChatScreen(
     currentUser: UserAccount,
     messages: List<ChatMessage>,
     mentions: List<MentionTarget> = emptyList(),
+    onMentionSpeak: (MentionTarget) -> Unit = {},
     sending: Boolean,
     onBack: () -> Unit,
     onEdit: () -> Unit,
@@ -84,20 +84,7 @@ fun ChatScreen(
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val inputFocus = remember { FocusRequester() }
     val theme = AppTheme.colors
-
-    // 点 @ 列表：把「@名字 」插到输入框末尾，并弹出键盘，直接接着说话
-    fun mention(member: MentionTarget) {
-        if (sending) return
-        val prefix = when {
-            input.isBlank() -> ""
-            input.endsWith(" ") || input.endsWith("\n") -> input
-            else -> "$input "
-        }
-        input = "$prefix@${member.name} "
-        runCatching { inputFocus.requestFocus() }
-    }
 
     LaunchedEffect(messages.size, sending) {
         val itemCount = 1 + messages.size + if (sending) 1 else 0
@@ -185,12 +172,14 @@ fun ChatScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     mentions.forEach { member ->
+                        val enabled = !sending
                         Row(
                             Modifier
                                 .clip(RoundedCornerShape(50))
                                 .background(theme.inputFieldBg)
-                                .clickable { mention(member) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .clickable(enabled = enabled) { onMentionSpeak(member) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .alpha(if (enabled) 1f else 0.45f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Avatar(
@@ -212,7 +201,7 @@ fun ChatScreen(
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
-                    modifier = Modifier.weight(1f).focusRequester(inputFocus),
+                    modifier = Modifier.weight(1f),
                     placeholder = {
                         Text(
                             if (isGroup) "在群里说点什么…" else "和 $title 说点什么…",

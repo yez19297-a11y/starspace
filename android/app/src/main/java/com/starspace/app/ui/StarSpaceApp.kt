@@ -989,6 +989,115 @@ private fun GroupChatPane(
     }
     val userNote = userSettingBlock(currentUser)
 
+    // 防呆：点 @ 让某人开口会真的往群里发一条消息、花 token，所以做了三层保护：
+    //  1. 正在生成时不再接受点击，芯片也会变灰；
+    //  2. 同一个人 1.5 秒内只响应一次，避免手抖连点；
+    //  3. 没配置模型/后端时直接给出提示，不发空请求。
+    var lastPokeId by remember { mutableStateOf<String?>(null) }
+    var lastPokeAt by remember { mutableStateOf(0L) }
+
+    fun modelReady(): Boolean {
+        val config = store.data.settings.activeConfig
+        return (config.directMode && config.apiKey.isNotBlank()) ||
+            store.data.settings.backendReady
+    }
+
+    // 让某个成员在当前话题里说一句话；返回 null 表示 TA 选择沉默
+    suspend fun speak(
+        member: Persona,
+        history: MutableList<ChatMessage>,
+        must: Boolean,
+        nameList: List<String>
+    ): ChatResult? {
+        val config = store.data.settings.activeConfig
+        val direct = config.directMode && config.apiKey.isNotBlank()
+        // 每轮重新匹配：刚聊到的话题也能触发对应的世界书条目
+        val worldBook = if (group.worldBookEnabled) {
+            WorldBook.promptBlock(store.data.worldBook, history)
+        } else {
+            ""
+        }
+        val result = if (direct) {
+            api.groupDecideDirect(
+                config, member, history, nameList,
+                mentioned = must, worldBook = worldBook, userNote = userNote
+            )
+        } else {
+            // 走后端中转时，把设定拼进人设副本，后端不用改；
+            // 旧版后端对 prompt 有 8000 字上限，这里留一点余量
+            val extra = userNote + worldBook
+            val target = if (extra.isBlank()) {
+                member
+            } else {
+                member.copy(prompt = (member.prompt + extra).take(7900))
+            }
+            api.chat(store.data.settings.serverUrl, target, history)
+        }
+        if (!result.shouldReply || result.content.isBlank()) return null
+        val reply = ChatMessage(
+            personaId = group.id,
+            role = "assistant",
+            content = result.content,
+            reasoning = result.reasoning,
+            authorId = member.id,
+            authorName = member.name,
+            authorAvatar = member.avatar,
+            authorColor = member.color,
+            authorImage = member.avatarImage
+        )
+        store.addMessage(reply)
+        history.add(reply)
+        return result
+    }
+
+    // 点 @ 列表：不经过输入框，直接让这个成员开口
+    fun poke(target: MentionTarget) {
+        if (members.isEmpty()) return
+        val member = members.find { it.id == target.id } ?: return
+        if (sending) {
+            onNotify("先让 ${member.name} 说完再点")
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (member.id == lastPokeId && now - lastPokeAt < 1500L) return
+        lastPokeId = member.id
+        lastPokeAt = now
+        if (!modelReady()) {
+            onNotify("请先在设置里填写后端地址，或切换到直连配置")
+            return
+        }
+        onSendingChange(group.id)
+        scope.launch {
+            try {
+                val history = store.data.messages
+                    .filter { it.personaId == group.id }
+                    .toMutableList()
+                val result = speak(
+                    member = member,
+                    history = history,
+                    must = true,
+                    nameList = members.map { it.name }
+                )
+                if (result == null) {
+                    onNotify("「${member.name}」这次没接话，再点一次试试")
+                } else if (store.data.settings.notificationsEnabled &&
+                    !AppLifecycle.foreground
+                ) {
+                    Notify.showMessage(
+                        context,
+                        group.id,
+                        "${group.name} · ${member.name}",
+                        result.content
+                    )
+                }
+            } catch (error: Exception) {
+                onNotify(error.message ?: "AI 服务连接失败")
+            } finally {
+                onSendingChange(null)
+            }
+        }
+    }
+
     ChatScreen(
         title = group.name,
         avatar = group.avatar,
@@ -996,7 +1105,7 @@ private fun GroupChatPane(
         avatarImage = group.avatarImage,
         subtitle = "${members.size} 位成员 · $memberNames",
         bio = buildString {
-            append("群里的每位 AI 伙伴都会独立思考，决定是否参与。@某人可指定回复")
+            append("点输入框上方的成员可以直接让 TA 开口；输入 @名字 也能指定回复")
             val activeEntries = store.data.worldBook.count { it.enabled }
             if (group.worldBookEnabled && activeEntries > 0) {
                 append(" · 世界书 $activeEntries 条")
@@ -1006,6 +1115,7 @@ private fun GroupChatPane(
         currentUser = currentUser,
         messages = messages,
         mentions = mentions,
+        onMentionSpeak = { poke(it) },
         sending = sending,
         onBack = { onBack?.invoke() },
         onEdit = onEdit,
@@ -1040,10 +1150,7 @@ private fun GroupChatPane(
                         .toMutableList()
                     val nameList = members.map { it.name }
 
-                    val llm = store.data.settings.activeConfig
-                    val direct = llm.directMode && llm.apiKey.isNotBlank()
-
-                    if (!direct && !store.data.settings.backendReady) {
+                    if (!modelReady()) {
                         onNotify("请先在设置里填写后端地址，或切换到直连配置")
                         onSendingChange(null)
                         return@launch
@@ -1058,7 +1165,6 @@ private fun GroupChatPane(
                     }
 
                     // 按「最久没说话」排序：没开过口的人排最前，刚说过的人排到最后。
-                    // 之前固定按成员顺序遍历，导致永远只有前三个能轮到。
                     val lastSpokeAt = mutableMapOf<String, Long>()
                     history.forEach { message ->
                         val authorId = message.authorId
@@ -1069,71 +1175,34 @@ private fun GroupChatPane(
                     }
                     val speakingOrder = otherMembers.sortedBy { lastSpokeAt[it.id] ?: 0L }
 
-                    // 关键：每说完一句就写回 history，后面的人能看到前面刚说的话，才接得下去
-                    suspend fun speak(member: Persona, must: Boolean): Boolean {
-                        // 每轮重新匹配：刚聊到的话题也能触发对应的世界书条目
-                        val worldBook = if (group.worldBookEnabled) {
-                            WorldBook.promptBlock(store.data.worldBook, history)
-                        } else {
-                            ""
-                        }
-                        val result = if (direct) {
-                            api.groupDecideDirect(
-                                llm, member, history, nameList,
-                                mentioned = must, worldBook = worldBook,
-                                userNote = userNote
-                            )
-                        } else {
-                            // 走后端中转时，把设定拼进人设副本，后端不用改；
-                            // 旧版后端对 prompt 有 8000 字上限，这里留一点余量
-                            val extra = userNote + worldBook
-                            val target = if (extra.isBlank()) {
-                                member
-                            } else {
-                                member.copy(prompt = (member.prompt + extra).take(7900))
-                            }
-                            api.chat(store.data.settings.serverUrl, target, history)
-                        }
-                        if (!result.shouldReply || result.content.isBlank()) return false
-                        val reply = ChatMessage(
-                            personaId = group.id,
-                            role = "assistant",
-                            content = result.content,
-                            reasoning = result.reasoning,
-                            authorId = member.id,
-                            authorName = member.name,
-                            authorAvatar = member.avatar,
-                            authorColor = member.color,
-                            authorImage = member.avatarImage
-                        )
-                        store.addMessage(reply)
-                        history.add(reply)
-                        replied.add(member to result)
-                        return true
-                    }
-
                     // 被 @ 的人必回
                     for ((index, member) in mentionedMembers.withIndex()) {
                         if (index > 0) delay(450L)
-                        speak(member, must = true)
+                        speak(member, history, must = true, nameList)
+                            ?.let { replied.add(member to it) }
                     }
 
                     // 其余成员按「最久没说话」的顺序依次判断，看到的是已经更新过的群聊记录
                     for (member in speakingOrder) {
                         if (replied.size >= maxSpeakers) break
                         delay(350L + Random.nextLong(600L))
-                        speak(member, must = false)
+                        speak(member, history, must = false, nameList)
+                            ?.let { replied.add(member to it) }
                     }
 
                     // 全员沉默时挑最久没说话的那位兜底，避免发出去没人理
                     if (replied.isEmpty() && speakingOrder.isNotEmpty()) {
                         delay(300L)
-                        speak(speakingOrder.first(), must = true)
+                        val fallback = speakingOrder.first()
+                        speak(fallback, history, must = true, nameList)
+                            ?.let { replied.add(fallback to it) }
                     }
 
                     if (replied.isEmpty()) {
                         onNotify("大家这次都选择了沉默")
-                    } else if (store.data.settings.notificationsEnabled && !AppLifecycle.foreground) {
+                    } else if (store.data.settings.notificationsEnabled &&
+                        !AppLifecycle.foreground
+                    ) {
                         val (member, result) = replied.last()
                         Notify.showMessage(
                             context,
