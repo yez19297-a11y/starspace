@@ -55,6 +55,7 @@ import com.starspace.app.data.ModelCatalog
 import com.starspace.app.data.Persona
 import com.starspace.app.data.PostComment
 import com.starspace.app.data.SpacePost
+import com.starspace.app.data.WorldBook
 import com.starspace.app.notify.Notify
 import com.starspace.app.notify.SpaceCheckWorker
 import kotlinx.coroutines.delay
@@ -580,6 +581,8 @@ fun StarSpaceApp(
                                     }
                                 },
                                 onOpenLLMConfig = { profilePage = "llm" },
+                                onOpenWorldBook = { profilePage = "worldbook" },
+                                worldBookCount = store.data.worldBook.size,
                                 onOpenBackup = { profilePage = "backup" },
                                 onOpenAbout = { profilePage = "about" },
                                 onLogout = {
@@ -661,6 +664,22 @@ fun StarSpaceApp(
                                             }
                                         }
                                     }
+                                }
+                            )
+                            "worldbook" -> WorldBookScreen(
+                                entries = store.data.worldBook,
+                                onBack = { profilePage = "settings" },
+                                onSave = { entry ->
+                                    store.saveWorldBookEntry(entry)
+                                    notify("世界书已保存")
+                                },
+                                onDelete = { id ->
+                                    store.deleteWorldBookEntry(id)
+                                    notify("条目已删除")
+                                },
+                                onToggle = { id, enabled ->
+                                    store.setWorldBookEnabled(id, enabled)
+                                    notify(if (enabled) "条目已启用" else "条目已停用")
                                 }
                             )
                             "backup" -> BackupScreen(
@@ -865,7 +884,13 @@ private fun GroupChatPane(
         color = group.color,
         avatarImage = group.avatarImage,
         subtitle = "${members.size} 位成员 · $memberNames",
-        bio = "群里的每位 AI 伙伴都会独立思考，决定是否参与。@某人可指定回复",
+        bio = buildString {
+            append("群里的每位 AI 伙伴都会独立思考，决定是否参与。@某人可指定回复")
+            val activeEntries = store.data.worldBook.count { it.enabled }
+            if (group.worldBookEnabled && activeEntries > 0) {
+                append(" · 世界书 $activeEntries 条")
+            }
+        },
         isGroup = true,
         currentUser = currentUser,
         messages = messages,
@@ -913,15 +938,47 @@ private fun GroupChatPane(
                     }
 
                     val replied = mutableListOf<Pair<Persona, ChatResult>>()
-                    // 一轮最多 3 个人开口，避免群里刷屏
-                    val maxSpeakers = 3
+                    // 人多的群允许更多人开口，但仍然限制上限，避免刷屏
+                    val maxSpeakers = when {
+                        members.size <= 3 -> members.size
+                        members.size <= 5 -> 3
+                        else -> 4
+                    }
+
+                    // 按「最久没说话」排序：没开过口的人排最前，刚说过的人排到最后。
+                    // 之前固定按成员顺序遍历，导致永远只有前三个能轮到。
+                    val lastSpokeAt = mutableMapOf<String, Long>()
+                    history.forEach { message ->
+                        val authorId = message.authorId
+                        if (message.role == "assistant" && authorId != null) {
+                            lastSpokeAt[authorId] =
+                                maxOf(lastSpokeAt[authorId] ?: 0L, message.createdAt)
+                        }
+                    }
+                    val speakingOrder = otherMembers.sortedBy { lastSpokeAt[it.id] ?: 0L }
 
                     // 关键：每说完一句就写回 history，后面的人能看到前面刚说的话，才接得下去
                     suspend fun speak(member: Persona, must: Boolean): Boolean {
-                        val result = if (direct) {
-                            api.groupDecideDirect(llm, member, history, nameList, mentioned = must)
+                        // 每轮重新匹配：刚聊到的话题也能触发对应的世界书条目
+                        val worldBook = if (group.worldBookEnabled) {
+                            WorldBook.promptBlock(store.data.worldBook, history)
                         } else {
-                            api.chat(store.data.settings.serverUrl, member, history)
+                            ""
+                        }
+                        val result = if (direct) {
+                            api.groupDecideDirect(
+                                llm, member, history, nameList,
+                                mentioned = must, worldBook = worldBook
+                            )
+                        } else {
+                            // 走后端中转时，把设定拼进人设副本，后端不用改；
+                            // 旧版后端对 prompt 有 8000 字上限，这里留一点余量
+                            val target = if (worldBook.isBlank()) {
+                                member
+                            } else {
+                                member.copy(prompt = (member.prompt + worldBook).take(7900))
+                            }
+                            api.chat(store.data.settings.serverUrl, target, history)
                         }
                         if (!result.shouldReply || result.content.isBlank()) return false
                         val reply = ChatMessage(
@@ -947,17 +1004,17 @@ private fun GroupChatPane(
                         speak(member, must = true)
                     }
 
-                    // 其余成员依次判断，看到的是已经更新过的群聊记录
-                    for (member in otherMembers) {
+                    // 其余成员按「最久没说话」的顺序依次判断，看到的是已经更新过的群聊记录
+                    for (member in speakingOrder) {
                         if (replied.size >= maxSpeakers) break
                         delay(350L + Random.nextLong(600L))
                         speak(member, must = false)
                     }
 
-                    // 全员沉默时随机挑一位兜底，避免发出去没人理
-                    if (replied.isEmpty() && otherMembers.isNotEmpty()) {
+                    // 全员沉默时挑最久没说话的那位兜底，避免发出去没人理
+                    if (replied.isEmpty() && speakingOrder.isNotEmpty()) {
                         delay(300L)
-                        speak(otherMembers.random(), must = true)
+                        speak(speakingOrder.first(), must = true)
                     }
 
                     if (replied.isEmpty()) {

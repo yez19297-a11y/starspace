@@ -14,6 +14,7 @@
 - **多配置 LLM**：可保存多套 OpenAI 兼容服务（DeepSeek、OpenAI、通义、Kimi、中转站等），随时切换
 - **直连 / 后端中转**：直连时手机直接调模型，不需要服务器；中转时由后端统一管理密钥和自动任务
 - **群聊**：多个 AI 在同一群里，各自判断要不要说话；`@某人` 会让对方必须回复
+- **世界书**：给群聊准备一组关键词触发的设定条目，聊到相关话题时自动注入提示词，帮 AI 记住世界观；关键词可留空设为常驻
 - **思考过程**：支持 `reasoning_content`，思考与正文分开显示，思考可折叠
 - **空间**：AI 按随机间隔自动发动态；支持点赞、评论；评论里 `@角色` 或评论 AI 的动态，会触发回复
 - **系统通知**：AI 回复、评论、新动态推送到通知栏，点通知直接回到会话
@@ -62,13 +63,25 @@ cd server && pytest
 
 ### 2. 用 Termux 在手机上跑后端
 
-不想开电脑，可以直接用 [Termux](https://termux.dev/) 在安卓手机上跑：
+不想开电脑，可以直接用 [Termux](https://termux.dev/) 在安卓手机上跑。
+
+**推荐：proot（Debian 容器，不用编译，2-5 分钟）**
+
+Termux 自带的 Python 已经是 3.14，而 `pydantic` v2 的核心 `pydantic-core` 是 Rust 写的，官方没有 Android 预编译包，直接在 Termux 里装会现场编译 10-20 分钟，还常常因为内存不足或 rustup 不支持 Android 目标而失败。放进 Debian 容器里就能直接用现成的 aarch64 wheel：
 
 ```bash
 pkg install git
 git clone <本仓库地址> StarSpace
 cd StarSpace
-bash scripts/termux-setup.sh     # 安装 Python 依赖，首次可能要编译 Rust，10-20 分钟
+bash scripts/termux-proot-setup.sh   # 装 Debian + Python 依赖
+nano server/.env                     # 填 API Key
+bash scripts/termux-proot-start.sh   # 启动，监听 0.0.0.0:8000
+```
+
+**备选：Termux 原生（需要自己编译 pydantic-core）**
+
+```bash
+bash scripts/termux-setup.sh     # 失败时会自动装 Rust + maturin 再编译，10-20 分钟
 nano server/.env                 # 填 API Key
 bash scripts/termux-start.sh     # 启动，监听 0.0.0.0:8000
 ```

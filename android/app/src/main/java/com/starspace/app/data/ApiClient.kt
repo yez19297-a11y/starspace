@@ -128,9 +128,10 @@ class ApiClient {
 
     suspend fun groupDecideDirect(
         config: LLMConfig, persona: Persona, history: List<ChatMessage>,
-        memberNames: List<String>, mentioned: Boolean
+        memberNames: List<String>, mentioned: Boolean, worldBook: String = ""
     ): ChatResult = withContext(Dispatchers.IO) {
         val system = persona.prompt.trim() +
+            worldBook +
             "\n\n你正在名为「星屿」的独立应用的群聊中，群成员有：${memberNames.joinToString("、")}。" +
             "你在和用户、其他 AI 伙伴一起聊天，你只代表你自己说话。" +
             "保持人设一致，一次只说 1-3 句，像真人在群里发消息那样简短自然，不要长篇大论。" +

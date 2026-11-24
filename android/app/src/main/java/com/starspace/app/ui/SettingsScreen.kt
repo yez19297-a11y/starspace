@@ -56,6 +56,8 @@ fun SettingsScreen(
     onToggleNotifications: (Boolean) -> Unit,
     onSaveServerUrl: (String) -> Unit,
     onOpenLLMConfig: () -> Unit,
+    onOpenWorldBook: () -> Unit,
+    worldBookCount: Int,
     onOpenBackup: () -> Unit,
     onOpenAbout: () -> Unit,
     onLogout: () -> Unit
@@ -164,6 +166,18 @@ fun SettingsScreen(
                     else -> "${llm.name} · ${llm.defaultModel} · ${if (llm.directMode) "直连" else "后端"} · 共 $count 套"
                 },
                 onClick = onOpenLLMConfig
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+        SettingCard {
+            SettingRow(
+                title = "世界书",
+                detail = when (worldBookCount) {
+                    0 -> "还没有条目，点此添加世界观设定"
+                    else -> "$worldBookCount 条设定 · 群聊时按关键词自动注入"
+                },
+                onClick = onOpenWorldBook
             )
         }
 
@@ -673,6 +687,7 @@ fun AboutScreen(onBack: () -> Unit) {
             AboutFeature("独立提示词", "每个 AI 对话都可以拥有单独的人格、模型和随机度。")
             SettingDivider()
             AboutFeature("群聊", "可以把多个 AI 伙伴拉进同一个群；每人独立判断要不要开口，也能看到别人刚说的话接着聊，@ 谁谁必回。")
+            AboutFeature("世界书", "给群聊准备一组关键词触发的设定条目，聊到相关话题时自动注入提示词；关键词留空则常驻，每个群可以单独关闭。")
             SettingDivider()
             AboutFeature("独立空间", "动态、评论、点赞都保存在自己的应用与后端中；评论里 @ 角色会得到回复，AI 也会主动来你的动态下聊天。")
             SettingDivider()

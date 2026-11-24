@@ -88,6 +88,26 @@ class AppStore(context: Context) {
         ))
     }
 
+    fun saveWorldBookEntry(entry: WorldBookEntry) {
+        val exists = data.worldBook.any { it.id == entry.id }
+        val list = if (exists) {
+            data.worldBook.map { if (it.id == entry.id) entry else it }
+        } else {
+            data.worldBook + entry
+        }
+        update(data.copy(worldBook = list))
+    }
+
+    fun deleteWorldBookEntry(id: String) {
+        update(data.copy(worldBook = data.worldBook.filterNot { it.id == id }))
+    }
+
+    fun setWorldBookEnabled(id: String, enabled: Boolean) {
+        update(data.copy(worldBook = data.worldBook.map {
+            if (it.id == id) it.copy(enabled = enabled) else it
+        }))
+    }
+
     fun addMessage(message: ChatMessage) {
         update(data.copy(messages = data.messages + message))
     }
@@ -249,7 +269,13 @@ class AppStore(context: Context) {
         val currentUser = data.user
         val savedAccount = data.savedAccount
         val currentSettings = data.settings
-        update(sampleData().copy(user = currentUser, savedAccount = savedAccount, settings = currentSettings))
+        update(sampleData().copy(
+            user = currentUser,
+            savedAccount = savedAccount,
+            settings = currentSettings,
+            // 世界书属于用户配置，恢复演示数据时保留
+            worldBook = data.worldBook
+        ))
     }
 
     private fun update(newData: AppData) {
@@ -280,6 +306,15 @@ private fun AppData.toJson() = JSONObject().apply {
     put("groups", JSONArray().apply { groups.forEach { put(it.toJson()) } })
     put("messages", JSONArray().apply { messages.forEach { put(it.toJson()) } })
     put("posts", JSONArray().apply { posts.forEach { put(it.toJson()) } })
+    put("worldBook", JSONArray().apply { worldBook.forEach { put(it.toJson()) } })
+}
+
+private fun WorldBookEntry.toJson() = JSONObject().apply {
+    put("id", id)
+    put("title", title)
+    put("keywords", JSONArray().apply { keywords.forEach { put(it) } })
+    put("content", content)
+    put("enabled", enabled)
 }
 
 private fun LLMConfig.toJson() = JSONObject().apply {
@@ -325,6 +360,7 @@ private fun GroupChat.toJson() = JSONObject().apply {
     put("color", color)
     put("avatarImage", avatarImage ?: JSONObject.NULL)
     put("members", JSONArray().apply { members.forEach { put(it) } })
+    put("worldBookEnabled", worldBookEnabled)
 }
 
 private fun ChatMessage.toJson() = JSONObject().apply {
@@ -375,6 +411,7 @@ private fun String.toAppData(): AppData {
     val groups = root.optJSONArray("groups")?.mapObjects { it.toGroup() } ?: emptyList()
     val messages = root.getJSONArray("messages").mapObjects { it.toMessage() }
     val posts = root.getJSONArray("posts").mapObjects { it.toPost() }
+    val worldBook = root.optJSONArray("worldBook")?.mapObjects { it.toWorldBookEntry() } ?: emptyList()
     val llmArray = settingsJson?.optJSONArray("llmConfigs")
     val legacyLlm = settingsJson?.optJSONObject("llmConfig")
     val llmConfigs = when {
@@ -401,7 +438,8 @@ private fun String.toAppData(): AppData {
             notificationsEnabled = settingsJson?.optBoolean("notificationsEnabled", true) ?: true,
             llmConfigs = llmConfigs,
             activeConfigId = activeId
-        )
+        ),
+        worldBook = worldBook
     )
 }
 
@@ -451,7 +489,18 @@ private fun JSONObject.toGroup() = GroupChat(
     avatarImage = optionalString("avatarImage"),
     members = optJSONArray("members")?.let { array ->
         (0 until array.length()).map { array.optString(it) }
-    } ?: emptyList()
+    } ?: emptyList(),
+    worldBookEnabled = optBoolean("worldBookEnabled", true)
+)
+
+private fun JSONObject.toWorldBookEntry() = WorldBookEntry(
+    id = optString("id", "").ifBlank { java.util.UUID.randomUUID().toString() },
+    title = optString("title", ""),
+    keywords = optJSONArray("keywords")?.let { array ->
+        (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
+    } ?: emptyList(),
+    content = optString("content", ""),
+    enabled = optBoolean("enabled", true)
 )
 
 private fun JSONObject.toMessage() = ChatMessage(

@@ -17,6 +17,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ fun GroupEditor(
     var selectedMembers by remember(group.id) {
         mutableStateOf(group.members.toSet())
     }
+    var worldBookEnabled by remember(group.id) { mutableStateOf(group.worldBookEnabled) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -138,6 +140,25 @@ fun GroupEditor(
                     }
                 }
 
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = AppTheme.colors.divider)
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("世界书", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "聊天提到关键词时，自动把对应设定加进 AI 的提示词",
+                            color = Muted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                    }
+                    Switch(
+                        checked = worldBookEnabled,
+                        onCheckedChange = { worldBookEnabled = it }
+                    )
+                }
+
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!isNew) {
@@ -157,7 +178,8 @@ fun GroupEditor(
                                     avatar = avatar.ifBlank { name.take(1) },
                                     color = color,
                                     avatarImage = avatarImage,
-                                    members = selectedMembers.toList()
+                                    members = selectedMembers.toList(),
+                                    worldBookEnabled = worldBookEnabled
                                 ))
                             }
                         },

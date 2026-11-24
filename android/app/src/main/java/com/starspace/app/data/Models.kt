@@ -38,7 +38,22 @@ data class GroupChat(
     val avatar: String = "群",
     val color: Long = 0xFF52748F,
     val avatarImage: String? = null,
-    val members: List<String>
+    val members: List<String>,
+    /** 群里聊天时是否按关键词注入世界书设定 */
+    val worldBookEnabled: Boolean = true
+)
+
+/**
+ * 世界书条目：一段设定 + 一组触发词。
+ * 群聊里最近几条消息命中关键词时，这段设定会被塞进 system prompt。
+ * keywords 为空表示常驻，每轮都带上。
+ */
+data class WorldBookEntry(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val keywords: List<String> = emptyList(),
+    val content: String,
+    val enabled: Boolean = true
 )
 
 data class ChatMessage(
@@ -137,7 +152,8 @@ data class AppData(
     val groups: List<GroupChat>,
     val messages: List<ChatMessage>,
     val posts: List<SpacePost>,
-    val settings: AppSettings = AppSettings()
+    val settings: AppSettings = AppSettings(),
+    val worldBook: List<WorldBookEntry> = emptyList()
 )
 
 fun hashPassword(password: String): String =
